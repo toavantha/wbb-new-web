@@ -1,0 +1,34 @@
+@import 'tailwindcss';
+
+@source '../views/**/*.blade.php';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+
+@theme {
+    --font-sans: 'Plus Jakarta Sans', 'Noto Sans Sinhala', 'Noto Sans Tamil', sans-serif;
+    --color-wbb-950: #06152d;
+    --color-wbb-900: #0a1931;
+    --color-wbb-800: #0f2c59;
+    --color-wbb-700: #183b70;
+    --color-wbb-600: #1e4b8a;
+    --color-wbb-500: #2563eb;
+    --color-wbb-blue-900: #0a1f44;
+    --color-wbb-blue-800: #0f2c59;
+    --color-wbb-blue-700: #1a3c75;
+    --color-wbb-blue-600: #1e40af;
+    --color-wbb-gold-500: #f59e0b;
+    --color-wbb-gold-600: #d97706;
+    --color-wbb-gold-700: #b45309;
+    --color-wbb-gold: #f59e0b;
+    --color-wbb-goldDark: #d97706;
+    --color-wbb-goldLight: #fef3c7;
+}
+
+[x-cloak] {
+    display: none !important;
+}
+
+.bg-pattern {
+    background-image: radial-gradient(rgba(15, 44, 89, 0.08) 1px, transparent 0);
+    background-size: 24px 24px;
+}

@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "laravel-boost": {
+            "command": "C:\\php-8.5.10\\php.exe",
+            "args": [
+                "C:\\Users\\acer\\Desktop\\WBB ANTIGRAVITY WEBSITE\\artisan",
+                "boost:mcp"
+            ]
+        }
+    }
+}

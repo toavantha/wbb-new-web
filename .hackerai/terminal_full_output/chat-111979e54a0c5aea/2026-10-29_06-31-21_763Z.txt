@@ -1,0 +1,604 @@
+==== app/Http/Controllers/Admin/EmployeeController.php ====
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Employee;
+use App\Services\CmsActivityLogger;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
+use RuntimeException;
+
+class EmployeeController extends Controller
+{
+    public function index(CmsActivityLogger $activityLogger): View
+    {
+        $employees = Employee::query()->orderBy('name')->paginate(10);
+        $photoUploaders = $activityLogger->latestActorsFor('employee_photo', $employees->pluck('id')->all());
+
+        return view('admin.employees.index', compact('employees', 'photoUploaders'));
+    }
+
+    public function create(): View
+    {
+        return view('admin.employees.create');
+    }
+
+    public function store(Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:191'],
+            'name_si' => ['required', 'string', 'max:191'],
+            'name_ta' => ['required', 'string', 'max:191'],
+            'designation' => ['required', 'string', 'max:191'],
+            'designation_si' => ['required', 'string', 'max:191'],
+            'designation_ta' => ['required', 'string', 'max:191'],
+            'mobile' => ['nullable', 'string', 'regex:/\A0[0-9]{9}\z/'],
+            'email' => ['nullable', 'email', 'max:191'],
+            'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ], [
+            'mobile.regex' => __('site.contact.phone_format_error'),
+        ]);
+
+        unset($validated['image']);
+
+        if ($request->hasFile('image')) {
+            $imagePath = $request->file('image')->store('employees', 'public');
+
+            if (! is_string($imagePath)) {
+                throw new RuntimeException('Unable to store the employee image.');
+            }
+
+            $validated['image_path'] = $imagePath;
+        }
+
+        $validated['is_active'] = $request->boolean('is_active');
+        $employee = Employee::create($validated);
+
+        if ($request->hasFile('image')) {
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'employee_photo',
+                $employee->id,
+                $employee->name,
+                'Uploaded employee photo: '.$request->file('image')->getClientOriginalName(),
+            );
+        }
+
+        return redirect()->route('admin.employees.index')->with('success', 'Employee profile created successfully.');
+    }
+
+    public function edit(Employee $employee): View
+    {
+        return view('admin.employees.edit', compact('employee'));
+    }
+
+    public function update(Request $request, Employee $employee, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:191'],
+            'name_si' => ['required', 'string', 'max:191'],
+            'name_ta' => ['required', 'string', 'max:191'],
+            'designation' => ['required', 'string', 'max:191'],
+            'designation_si' => ['required', 'string', 'max:191'],
+            'designation_ta' => ['required', 'string', 'max:191'],
+            'mobile' => ['nullable', 'string', 'regex:/\A0[0-9]{9}\z/'],
+            'email' => ['nullable', 'email', 'max:191'],
+            'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ], [
+            'mobile.regex' => __('site.contact.phone_format_error'),
+        ]);
+
+        unset($validated['image']);
+
+        $uploadedImage = $request->file('image');
+
+        if ($uploadedImage !== null) {
+            $imagePath = $request->file('image')->store('employees', 'public');
+
+            if (! is_string($imagePath)) {
+                throw new RuntimeException('Unable to store the employee image.');
+            }
+
+            $previousImagePath = $employee->image_path;
+            $validated['image_path'] = $imagePath;
+        }
+
+        $validated['is_active'] = $request->boolean('is_active');
+        $employee->update($validated);
+
+        if ($uploadedImage !== null) {
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'employee_photo',
+                $employee->id,
+                $employee->name,
+                'Replaced employee photo with: '.$uploadedImage->getClientOriginalName(),
+==== app/Http/Controllers/Admin/BoardMemberController.php ====
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\BoardMember;
+use App\Services\CmsActivityLogger;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
+use RuntimeException;
+
+class BoardMemberController extends Controller
+{
+    public function index(CmsActivityLogger $activityLogger): View
+    {
+        $boardMembers = BoardMember::query()
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->paginate(10);
+        $photoUploaders = $activityLogger->latestActorsFor('board_member_photo', $boardMembers->pluck('id')->all());
+
+        return view('admin.board-members.index', compact('boardMembers', 'photoUploaders'));
+    }
+
+    public function create(): View
+    {
+        $nextSortOrder = ((int) BoardMember::query()->max('sort_order')) + 1;
+
+        return view('admin.board-members.create', compact('nextSortOrder'));
+    }
+
+    public function store(Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:191'],
+            'name_si' => ['required', 'string', 'max:191'],
+            'name_ta' => ['required', 'string', 'max:191'],
+            'position' => ['required', 'in:chairman,member'],
+            'email' => ['nullable', 'email', 'max:191'],
+            'sort_order' => ['required', 'integer', 'min:0'],
+            'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ]);
+
+        unset($validated['image']);
+        $uploadedImage = $request->file('image');
+
+        if ($uploadedImage !== null) {
+            $imagePath = $uploadedImage->store('board-members', 'public');
+
+            if (! is_string($imagePath)) {
+                throw new RuntimeException('Unable to store the board member photo.');
+            }
+
+            $validated['image_path'] = $imagePath;
+        }
+
+        $validated['is_active'] = $request->boolean('is_active');
+        $boardMember = BoardMember::create($validated);
+        $activityLogger->record($request, 'created', 'board_member', $boardMember->id, $boardMember->name);
+
+        if ($uploadedImage !== null) {
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'board_member_photo',
+                $boardMember->id,
+                $boardMember->name,
+                'Uploaded board member photo: '.$uploadedImage->getClientOriginalName(),
+            );
+        }
+
+        return redirect()->route('admin.board-members.index')->with('success', 'Board member added successfully.');
+    }
+
+    public function edit(BoardMember $boardMember): View
+    {
+        return view('admin.board-members.edit', compact('boardMember'));
+    }
+
+    public function update(Request $request, BoardMember $boardMember, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:191'],
+            'name_si' => ['required', 'string', 'max:191'],
+            'name_ta' => ['required', 'string', 'max:191'],
+            'position' => ['required', 'in:chairman,member'],
+            'email' => ['nullable', 'email', 'max:191'],
+            'sort_order' => ['required', 'integer', 'min:0'],
+            'image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ]);
+
+        unset($validated['image']);
+        $uploadedImage = $request->file('image');
+        $previousImagePath = $boardMember->image_path;
+
+        if ($uploadedImage !== null) {
+            $imagePath = $uploadedImage->store('board-members', 'public');
+
+            if (! is_string($imagePath)) {
+                throw new RuntimeException('Unable to store the board member photo.');
+            }
+
+            $validated['image_path'] = $imagePath;
+        }
+
+        $validated['is_active'] = $request->boolean('is_active');
+        $boardMember->update($validated);
+        $activityLogger->record($request, 'updated', 'board_member', $boardMember->id, $boardMember->name);
+
+        if ($uploadedImage !== null) {
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'board_member_photo',
+                $boardMember->id,
+                $boardMember->name,
+                'Replaced board member photo with: '.$uploadedImage->getClientOriginalName(),
+            );
+==== app/Http/Controllers/Admin/GovernmentAffiliationController.php ====
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\GovernmentAffiliation;
+use App\Services\CmsActivityLogger;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
+use RuntimeException;
+
+class GovernmentAffiliationController extends Controller
+{
+    public function index(CmsActivityLogger $activityLogger): View
+    {
+        $affiliations = GovernmentAffiliation::query()
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->paginate(10);
+        $photoUploaders = $activityLogger->latestActorsFor('government_affiliation_photo', $affiliations->pluck('id')->all());
+
+        return view('admin.government-affiliations.index', compact('affiliations', 'photoUploaders'));
+    }
+
+    public function create(): View
+    {
+        $nextSortOrder = ((int) GovernmentAffiliation::query()->max('sort_order')) + 1;
+
+        return view('admin.government-affiliations.create', compact('nextSortOrder'));
+    }
+
+    public function store(Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $validated = $this->validatedInput($request);
+        unset($validated['image']);
+
+        $uploadedImage = $request->file('image');
+
+        if ($uploadedImage !== null) {
+            $imagePath = $uploadedImage->store('government-affiliations', 'public');
+
+            if (! is_string($imagePath)) {
+                throw new RuntimeException('Unable to store the government affiliation photo.');
+            }
+
+            $validated['image_path'] = $imagePath;
+        }
+
+        $validated['is_active'] = $request->boolean('is_active');
+        $affiliation = GovernmentAffiliation::create($validated);
+        $activityLogger->record($request, 'created', 'government_affiliation', $affiliation->id, $affiliation->name_en);
+
+        if ($uploadedImage !== null) {
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'government_affiliation_photo',
+                $affiliation->id,
+                $affiliation->name_en,
+                'Uploaded government affiliation photo: '.$uploadedImage->getClientOriginalName(),
+            );
+        }
+
+        return redirect()->route('admin.government-affiliations.index')->with('success', 'Government affiliation added successfully.');
+    }
+
+    public function edit(GovernmentAffiliation $governmentAffiliation): View
+    {
+        return view('admin.government-affiliations.edit', compact('governmentAffiliation'));
+    }
+
+    public function update(
+        Request $request,
+        GovernmentAffiliation $governmentAffiliation,
+        CmsActivityLogger $activityLogger,
+    ): RedirectResponse {
+        $validated = $this->validatedInput($request);
+        unset($validated['image']);
+
+        $uploadedImage = $request->file('image');
+        $previousImagePath = $governmentAffiliation->image_path;
+
+        if ($uploadedImage !== null) {
+            $imagePath = $uploadedImage->store('government-affiliations', 'public');
+
+            if (! is_string($imagePath)) {
+                throw new RuntimeException('Unable to store the government affiliation photo.');
+            }
+
+            $validated['image_path'] = $imagePath;
+        }
+
+        $validated['is_active'] = $request->boolean('is_active');
+        $governmentAffiliation->update($validated);
+        $activityLogger->record(
+            $request,
+            'updated',
+            'government_affiliation',
+            $governmentAffiliation->id,
+            $governmentAffiliation->name_en,
+        );
+
+        if ($uploadedImage !== null) {
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'government_affiliation_photo',
+                $governmentAffiliation->id,
+                $governmentAffiliation->name_en,
+                'Replaced government affiliation photo with: '.$uploadedImage->getClientOriginalName(),
+            );
+
+            $this->deleteStoredImage($previousImagePath);
+
+            if ($previousImagePath !== null) {
+                $activityLogger->record(
+                    $request,
+                    'removed',
+==== app/Http/Controllers/Admin/ContactInformationController.php ====
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\ContactInformation;
+use App\Services\CmsActivityLogger;
+use Closure;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
+
+class ContactInformationController extends Controller
+{
+    public function edit(): View
+    {
+        $contactInformation = ContactInformation::query()->findOrFail(1);
+
+        return view('admin.contact-information.edit', compact('contactInformation'));
+    }
+
+    public function update(Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $contactInformation = ContactInformation::query()->findOrFail(1);
+
+        $validated = $request->validate([
+            'address' => ['required', 'string', 'max:2000'],
+            'hotline' => ['required', 'string', 'max:50', 'regex:/\A[0-9+ ()\/-]+\z/'],
+            'hotline_hours_en' => ['required', 'string', 'max:191'],
+            'hotline_hours_si' => ['required', 'string', 'max:191'],
+            'hotline_hours_ta' => ['required', 'string', 'max:191'],
+            'office_phone' => ['required', 'string', 'max:100', 'regex:/\A[0-9+ ()\/-]+\z/'],
+            'email_primary' => ['required', 'email', 'max:191'],
+            'email_secondary' => ['required', 'email', 'max:191'],
+            'google_maps_url' => ['nullable', ...$this->googleMapsUrlRules()],
+        ]);
+        $coordinates = filled($validated['google_maps_url'] ?? null)
+            ? $this->coordinatesFromGoogleMapsUrl($validated['google_maps_url'])
+            : null;
+
+        if ($coordinates !== null) {
+            $validated['latitude'] = $coordinates['latitude'];
+            $validated['longitude'] = $coordinates['longitude'];
+        }
+
+        $latitude = (float) ($validated['latitude'] ?? $contactInformation->latitude);
+        $longitude = (float) ($validated['longitude'] ?? $contactInformation->longitude);
+        $validated['map_embed_url'] = sprintf(
+            'https://www.openstreetmap.org/export/embed.html?bbox=%1$s,%2$s,%3$s,%4$s&layer=mapnik&marker=%5$s,%6$s',
+            number_format(max(-180, $longitude - 0.01), 7, '.', ''),
+            number_format(max(-90, $latitude - 0.006), 7, '.', ''),
+            number_format(min(180, $longitude + 0.01), 7, '.', ''),
+            number_format(min(90, $latitude + 0.006), 7, '.', ''),
+            number_format($latitude, 7, '.', ''),
+            number_format($longitude, 7, '.', ''),
+        );
+
+        $contactInformation->update($validated);
+        $activityLogger->record(
+            $request,
+            'updated',
+            'contact_information',
+            $contactInformation->id,
+            'Contact page headquarters information',
+        );
+
+        return redirect()->route('admin.contact-information.edit')
+            ->with('success', 'Contact page information updated successfully.');
+    }
+
+    /**
+     * @return array<int, mixed>
+     */
+    private function googleMapsUrlRules(): array
+    {
+        return [
+            'string',
+            'url',
+            'max:2048',
+            function (string $attribute, mixed $value, Closure $fail): void {
+                $coordinates = is_string($value) ? $this->coordinatesFromGoogleMapsUrl($value) : null;
+                if ($coordinates === null) {
+                    $fail('Enter a full Google Maps location URL containing coordinates, such as google.com/maps/place/.../@latitude,longitude.');
+                }
+            },
+        ];
+    }
+
+    /**
+     * @return array{latitude: float, longitude: float}|null
+     */
+    private function coordinatesFromGoogleMapsUrl(string $url): ?array
+    {
+        $parts = parse_url($url);
+        if (! is_array($parts)
+            || ($parts['scheme'] ?? '') !== 'https'
+            || ! in_array(strtolower($parts['host'] ?? ''), ['google.com', 'www.google.com', 'maps.google.com'], true)
+            || preg_match('#^/maps/place(?:/|$)#', $parts['path'] ?? '') !== 1) {
+            return null;
+        }
+
+        $decodedPath = urldecode($parts['path'] ?? '');
+        $patterns = [
+            '/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/',
+            '/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:,|\/|$)/',
+        ];
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $decodedPath, $matches) === 1) {
+                $latitude = (float) $matches[1];
+                $longitude = (float) $matches[2];
+                if ($latitude >= -90 && $latitude <= 90 && $longitude >= -180 && $longitude <= 180) {
+                    return ['latitude' => $latitude, 'longitude' => $longitude];
+                }
+            }
+        }
+
+        return null;
+    }
+}
+==== app/Http/Controllers/Admin/WelfareSchemeController.php ====
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\WelfareScheme;
+use App\Services\CmsActivityLogger;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Illuminate\View\View;
+
+class WelfareSchemeController extends Controller
+{
+    public function index(): View
+    {
+        $welfareSchemes = WelfareScheme::query()
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->paginate(10);
+
+        return view('admin.welfare-schemes.index', compact('welfareSchemes'));
+    }
+
+    public function create(): View
+    {
+        $nextSortOrder = ((int) WelfareScheme::query()->max('sort_order')) + 1;
+
+        return view('admin.welfare-schemes.create', compact('nextSortOrder'));
+    }
+
+    public function store(Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $validated = $this->validatedInput($request);
+        $validated['is_active'] = $request->boolean('is_active');
+        $welfareScheme = WelfareScheme::create($validated);
+        $activityLogger->record(
+            $request,
+            'created',
+            'welfare_scheme',
+            $welfareScheme->id,
+            $welfareScheme->localizedContent()['name'],
+        );
+
+        return redirect()->route('admin.welfare-schemes.index')->with('success', 'Welfare scheme added successfully.');
+    }
+
+    public function edit(WelfareScheme $welfareScheme): View
+    {
+        return view('admin.welfare-schemes.edit', compact('welfareScheme'));
+    }
+
+    public function update(
+        Request $request,
+        WelfareScheme $welfareScheme,
+        CmsActivityLogger $activityLogger,
+    ): RedirectResponse {
+        $validated = $this->validatedInput($request);
+        $validated['is_active'] = $request->boolean('is_active');
+        $welfareScheme->update($validated);
+        $activityLogger->record(
+            $request,
+            'updated',
+            'welfare_scheme',
+            $welfareScheme->id,
+            $welfareScheme->localizedContent()['name'],
+        );
+
+        return redirect()->route('admin.welfare-schemes.index')->with('success', 'Welfare scheme updated successfully.');
+    }
+
+    public function destroy(
+        WelfareScheme $welfareScheme,
+        Request $request,
+        CmsActivityLogger $activityLogger,
+    ): RedirectResponse {
+        $schemeId = $welfareScheme->id;
+        $schemeName = $welfareScheme->localizedContent()['name'];
+        $welfareScheme->delete();
+        $activityLogger->record($request, 'deleted', 'welfare_scheme', $schemeId, $schemeName);
+
+        return redirect()->route('admin.welfare-schemes.index')->with('success', 'Welfare scheme deleted successfully.');
+    }
+
+    /**
+     * @return array{content: array<string, array{name: string, badge: string, duration: string, description: string, indicators: array<int, string>}>, monthly_allowance: int, sort_order: int}
+     */
+    private function validatedInput(Request $request): array
+    {
+        $rules = [
+            'monthly_allowance' => ['required', 'integer', 'min:0'],
+            'sort_order' => ['required', 'integer', 'min:0'],
+        ];
+
+        foreach (['en', 'si', 'ta'] as $locale) {
+            $rules["content.{$locale}.name"] = ['required', 'string', 'max:191'];
+            $rules["content.{$locale}.badge"] = ['required', 'string', 'max:191'];
+            $rules["content.{$locale}.duration"] = ['required', 'string', 'max:191'];
+            $rules["content.{$locale}.description"] = ['required', 'string', 'max:2000'];
+            $rules["content.{$locale}.indicators"] = ['required', 'string', 'max:4000'];
+        }
+
+        $validated = $request->validate($rules);
+
+        foreach (['en', 'si', 'ta'] as $locale) {
+            $indicators = preg_split('/\r\n|\r|\n/', $validated['content'][$locale]['indicators']);
+            $indicators = array_values(array_filter(array_map('trim', $indicators), fn (string $indicator): bool => $indicator !== ''));
+
+            if ($indicators === []) {
+                throw ValidationException::withMessages([
+                    "content.{$locale}.indicators" => 'Enter at least one criterion.',
+                ]);
+            }
+
+            $validated['content'][$locale]['indicators'] = $indicators;
+        }
+
+        return $validated;
+    }
+}

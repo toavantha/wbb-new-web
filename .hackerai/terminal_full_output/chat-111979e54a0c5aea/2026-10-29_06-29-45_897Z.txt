@@ -1,0 +1,794 @@
+==== app/Http/Controllers/Admin/CareerController.php ====
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Career;
+use App\Services\CmsActivityLogger;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
+use LogicException;
+use RuntimeException;
+
+class CareerController extends Controller
+{
+    /**
+     * List all job vacancies.
+     */
+    public function index(CmsActivityLogger $activityLogger): View
+    {
+        $careers = Career::orderBy('closing_date', 'desc')->paginate(10);
+        $uploaders = $activityLogger->latestActorsFor('career_document', $careers->pluck('id')->all());
+
+        return view('admin.careers.index', compact('careers', 'uploaders'));
+    }
+
+    /**
+     * Show create vacancy form.
+     */
+    public function create(): View
+    {
+        return view('admin.careers.create');
+    }
+
+    /**
+     * Store new vacancy.
+     */
+    public function store(Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $validated = $request->validate([
+            ...$this->careerRules(),
+        ]);
+
+        $documentPaths = $this->storeDocuments($request);
+
+        foreach ($this->documentInputs() as $input) {
+            unset($validated[$input]);
+        }
+
+        $validated = [...$validated, ...$documentPaths];
+        $validated['is_active'] = $request->boolean('is_active');
+
+        $career = Career::create($validated);
+
+        foreach (array_keys($documentPaths) as $field) {
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'career_document',
+                $career->id,
+                $career->title,
+                'Uploaded '.$this->documentLabel($field).': '.$request->file($this->documentInputForPath($field))->getClientOriginalName(),
+            );
+        }
+
+        return redirect()->route('admin.careers.index')->with('success', 'Job vacancy created successfully.');
+    }
+
+    /**
+     * Show edit vacancy form.
+     */
+    public function edit(int $id): View
+    {
+        $career = Career::findOrFail($id);
+
+        return view('admin.careers.edit', compact('career'));
+    }
+
+    /**
+     * Update vacancy.
+     */
+    public function update(Request $request, int $id, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $career = Career::findOrFail($id);
+
+        $validated = $request->validate($this->careerRules());
+        $newDocumentPaths = $this->storeDocuments($request);
+        $previousDocumentPaths = [];
+
+        foreach ($this->documentInputs() as $input) {
+            unset($validated[$input]);
+        }
+
+        foreach ($newDocumentPaths as $field => $path) {
+            $previousDocumentPaths[$field] = $career->{$field};
+            $validated[$field] = $path;
+        }
+
+        $validated['is_active'] = $request->boolean('is_active');
+
+        $career->update($validated);
+
+        $this->deleteDocuments(array_filter($previousDocumentPaths));
+
+        foreach ($newDocumentPaths as $field => $path) {
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'career_document',
+                $career->id,
+                $career->title,
+                'Replaced '.$this->documentLabel($field).' with: '.$request->file($this->documentInputForPath($field))->getClientOriginalName(),
+            );
+        }
+
+        foreach (array_filter($previousDocumentPaths) as $field => $path) {
+            $activityLogger->record(
+                $request,
+                'removed',
+                'career_document',
+                $career->id,
+                $career->title,
+                'Replaced previous '.$this->documentLabel($field).': '.basename($path),
+            );
+        }
+
+        return redirect()->route('admin.careers.index')->with('success', 'Job vacancy updated successfully.');
+    }
+
+    /**
+     * Delete vacancy.
+     */
+    public function destroy(int $id, Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $career = Career::findOrFail($id);
+        $documentPaths = [];
+
+        foreach (Career::DOCUMENT_TYPES as $documentType) {
+            foreach (Career::DOCUMENT_LOCALES as $locale) {
+                $field = $this->documentPathField($documentType, $locale);
+
+                if ($career->{$field}) {
+                    $documentPaths[$field] = $career->{$field};
+                }
+            }
+        }
+
+        $career->delete();
+
+        $this->deleteDocuments(array_values($documentPaths));
+
+        foreach ($documentPaths as $field => $path) {
+            $activityLogger->record(
+                $request,
+                'removed',
+                'career_document',
+                $career->id,
+                $career->title,
+                'Removed '.$this->documentLabel($field).': '.basename($path),
+            );
+        }
+
+        return redirect()->route('admin.careers.index')->with('success', 'Job vacancy deleted successfully.');
+    }
+
+    /**
+     * @return array<string, string|array<int, string>>
+     */
+    private function careerRules(): array
+    {
+        $rules = [
+            'title' => ['required', 'string', 'max:191'],
+            'department' => ['required', 'string', 'max:100'],
+            'employment_type' => ['required', 'string', 'max:50'],
+            'location' => ['required', 'string', 'max:100'],
+            'salary_scale' => ['nullable', 'string', 'max:100'],
+            'description' => ['required', 'string'],
+            'qualifications' => ['required', 'string'],
+            'closing_date' => ['required', 'date'],
+        ];
+
+        foreach ($this->documentInputs() as $input) {
+            $rules[$input] = ['nullable', 'file', 'mimes:pdf,docx', 'extensions:pdf,docx', 'max:10240'];
+        }
+
+        return $rules;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function documentInputs(): array
+    {
+        $inputs = [];
+
+        foreach (Career::DOCUMENT_TYPES as $documentType) {
+            foreach (Career::DOCUMENT_LOCALES as $locale) {
+                $inputs[] = "{$documentType}_{$locale}_file";
+            }
+        }
+
+        return $inputs;
+    }
+
+    private function documentPathField(string $documentType, string $locale): string
+    {
+        return $locale === 'en'
+            ? "{$documentType}_file_path"
+            : "{$documentType}_{$locale}_file_path";
+    }
+
+    private function documentInputForPath(string $pathField): string
+    {
+        foreach (Career::DOCUMENT_TYPES as $documentType) {
+            foreach (Career::DOCUMENT_LOCALES as $locale) {
+                if ($this->documentPathField($documentType, $locale) === $pathField) {
+                    return "{$documentType}_{$locale}_file";
+                }
+            }
+        }
+
+        throw new LogicException('Unknown vacancy document path field.');
+    }
+
+    private function documentLabel(string $pathField): string
+    {
+        return str_replace('_', ' ', str_replace('_file_path', '', $pathField));
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function storeDocuments(Request $request): array
+    {
+        $storedPaths = [];
+
+        foreach (Career::DOCUMENT_TYPES as $documentType) {
+            foreach (Career::DOCUMENT_LOCALES as $locale) {
+                $input = "{$documentType}_{$locale}_file";
+
+                if (! $request->hasFile($input)) {
+                    continue;
+                }
+
+                $path = $request->file($input)->store("vacancies/{$locale}/{$documentType}", 'public');
+
+                if (! is_string($path)) {
+                    $this->deleteDocuments(array_values($storedPaths));
+
+                    throw new RuntimeException('Unable to store vacancy documents.');
+                }
+
+                $field = $this->documentPathField($documentType, $locale);
+                $storedPaths[$field] = $path;
+            }
+        }
+
+        return $storedPaths;
+    }
+
+    /**
+     * @param  array<int, string>  $paths
+     */
+    private function deleteDocuments(array $paths): void
+    {
+        foreach ($paths as $path) {
+            if (! Storage::disk('public')->delete($path)) {
+                throw new RuntimeException('Unable to remove a vacancy document.');
+            }
+        }
+    }
+}
+==== app/Http/Controllers/Admin/ProcurementController.php ====
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Procurement;
+use App\Services\CmsActivityLogger;
+use Carbon\Carbon;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+use Illuminate\View\View;
+
+class ProcurementController extends Controller
+{
+    /**
+     * List all procurement notices, tender documents, TORs, and other notices.
+     */
+    public function index(Request $request, CmsActivityLogger $activityLogger): View
+    {
+        $status = $request->query('status', 'all');
+        $category = $request->query('category', 'All');
+        $search = trim((string) $request->query('search', ''));
+        $today = Carbon::today();
+
+        $query = Procurement::query();
+
+        if ($status === 'current') {
+            $query->where('deadline_date', '>=', $today);
+        } elseif ($status === 'expired') {
+            $query->where('deadline_date', '<', $today);
+        }
+
+        if ($category !== 'All' && in_array($category, Procurement::CATEGORIES, true)) {
+            $query->where('category', $category);
+        }
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('title_si', 'like', "%{$search}%")
+                    ->orWhere('title_ta', 'like', "%{$search}%")
+                    ->orWhere('reference_no', 'like', "%{$search}%");
+            });
+        }
+
+        $procurements = $query->orderBy('deadline_date', 'desc')->paginate(10)->withQueryString();
+        $uploaders = $activityLogger->latestActorsFor('procurement', $procurements->pluck('id')->all());
+
+        $currentCount = Procurement::where('deadline_date', '>=', $today)->count();
+        $expiredCount = Procurement::where('deadline_date', '<', $today)->count();
+        $totalCount = Procurement::count();
+
+        return view('admin.procurements.index', compact(
+            'procurements',
+            'uploaders',
+            'status',
+            'category',
+            'search',
+            'currentCount',
+            'expiredCount',
+            'totalCount'
+        ));
+    }
+
+    /**
+     * Show create procurement form.
+     */
+    public function create(): View
+    {
+        return view('admin.procurements.create');
+    }
+
+    /**
+     * Store new procurement notice.
+     */
+    public function store(Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:191'],
+            'title_si' => ['nullable', 'string', 'max:191'],
+            'title_ta' => ['nullable', 'string', 'max:191'],
+            'reference_no' => ['nullable', 'string', 'max:100'],
+            'category' => ['required', 'string', Rule::in(Procurement::CATEGORIES)],
+            'description' => ['nullable', 'string'],
+            'description_si' => ['nullable', 'string'],
+            'description_ta' => ['nullable', 'string'],
+            'published_date' => ['required', 'date'],
+            'deadline_date' => ['required', 'date'],
+            'file_en' => ['nullable', 'file', 'mimes:pdf,docx,zip', 'extensions:pdf,docx,zip', 'max:20480'],
+            'file_si' => ['nullable', 'file', 'mimes:pdf,docx,zip', 'extensions:pdf,docx,zip', 'max:20480'],
+            'file_ta' => ['nullable', 'file', 'mimes:pdf,docx,zip', 'extensions:pdf,docx,zip', 'max:20480'],
+        ]);
+
+        $validated['is_active'] = $request->boolean('is_active');
+
+        if ($request->hasFile('file_en')) {
+            $file = $request->file('file_en');
+            $path = $file->store('procurements/en', 'public');
+            $validated['file_path'] = $path;
+            $validated['file_size'] = $this->formatFileSize($file->getSize());
+        }
+
+        if ($request->hasFile('file_si')) {
+            $file = $request->file('file_si');
+            $path = $file->store('procurements/si', 'public');
+            $validated['file_path_si'] = $path;
+            $validated['file_size_si'] = $this->formatFileSize($file->getSize());
+        }
+
+        if ($request->hasFile('file_ta')) {
+            $file = $request->file('file_ta');
+            $path = $file->store('procurements/ta', 'public');
+            $validated['file_path_ta'] = $path;
+            $validated['file_size_ta'] = $this->formatFileSize($file->getSize());
+        }
+
+        unset($validated['file_en'], $validated['file_si'], $validated['file_ta']);
+
+        $procurement = Procurement::create($validated);
+
+        $activityLogger->record(
+            $request,
+            'created',
+            'procurement',
+            $procurement->id,
+            $procurement->title,
+            'Created procurement in category: '.$procurement->category
+        );
+
+        if ($request->hasFile('file_en') || $request->hasFile('file_si') || $request->hasFile('file_ta')) {
+            $uploadedLangs = [];
+            if ($request->hasFile('file_en')) {
+                $uploadedLangs[] = 'EN';
+            }
+            if ($request->hasFile('file_si')) {
+                $uploadedLangs[] = 'SI';
+            }
+            if ($request->hasFile('file_ta')) {
+                $uploadedLangs[] = 'TA';
+            }
+
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'procurement',
+                $procurement->id,
+                $procurement->title,
+                'Uploaded procurement documents for: '.implode(', ', $uploadedLangs)
+            );
+        }
+
+        return redirect()->route('admin.procurements.index')->with('success', 'Procurement created successfully.');
+    }
+
+    /**
+     * Show edit procurement form.
+     */
+    public function edit(int $id): View
+    {
+        $procurement = Procurement::findOrFail($id);
+
+        return view('admin.procurements.edit', compact('procurement'));
+    }
+
+    /**
+     * Update procurement notice.
+     */
+    public function update(Request $request, int $id, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $procurement = Procurement::findOrFail($id);
+
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:191'],
+            'title_si' => ['nullable', 'string', 'max:191'],
+            'title_ta' => ['nullable', 'string', 'max:191'],
+            'reference_no' => ['nullable', 'string', 'max:100'],
+            'category' => ['required', 'string', Rule::in(Procurement::CATEGORIES)],
+            'description' => ['nullable', 'string'],
+            'description_si' => ['nullable', 'string'],
+            'description_ta' => ['nullable', 'string'],
+            'published_date' => ['required', 'date'],
+            'deadline_date' => ['required', 'date'],
+            'file_en' => ['nullable', 'file', 'mimes:pdf,docx,zip', 'extensions:pdf,docx,zip', 'max:20480'],
+            'file_si' => ['nullable', 'file', 'mimes:pdf,docx,zip', 'extensions:pdf,docx,zip', 'max:20480'],
+            'file_ta' => ['nullable', 'file', 'mimes:pdf,docx,zip', 'extensions:pdf,docx,zip', 'max:20480'],
+        ]);
+
+        $validated['is_active'] = $request->boolean('is_active');
+
+        // Check if deadline was changed / extended
+        $newDeadline = Carbon::parse($validated['deadline_date'])->startOfDay();
+        $oldDeadline = $procurement->deadline_date?->startOfDay();
+
+        if ($oldDeadline && ! $newDeadline->equalTo($oldDeadline)) {
+            if ($procurement->original_deadline_date === null) {
+                $validated['original_deadline_date'] = $procurement->deadline_date;
+            }
+
+            $activityLogger->record(
+                $request,
+                'updated',
+                'procurement',
+                $procurement->id,
+                $procurement->title,
+                "Updated deadline from {$oldDeadline->format('Y-m-d')} to {$newDeadline->format('Y-m-d')}"
+            );
+        }
+
+        // Handle English file update
+        if ($request->hasFile('file_en')) {
+            if ($procurement->file_path && Storage::disk('public')->exists($procurement->file_path)) {
+                Storage::disk('public')->delete($procurement->file_path);
+            }
+            $file = $request->file('file_en');
+            $path = $file->store('procurements/en', 'public');
+            $validated['file_path'] = $path;
+            $validated['file_size'] = $this->formatFileSize($file->getSize());
+        }
+
+        // Handle Sinhala file update
+        if ($request->hasFile('file_si')) {
+            if ($procurement->file_path_si && Storage::disk('public')->exists($procurement->file_path_si)) {
+                Storage::disk('public')->delete($procurement->file_path_si);
+            }
+            $file = $request->file('file_si');
+            $path = $file->store('procurements/si', 'public');
+            $validated['file_path_si'] = $path;
+            $validated['file_size_si'] = $this->formatFileSize($file->getSize());
+        }
+
+        // Handle Tamil file update
+        if ($request->hasFile('file_ta')) {
+            if ($procurement->file_path_ta && Storage::disk('public')->exists($procurement->file_path_ta)) {
+                Storage::disk('public')->delete($procurement->file_path_ta);
+            }
+            $file = $request->file('file_ta');
+            $path = $file->store('procurements/ta', 'public');
+            $validated['file_path_ta'] = $path;
+            $validated['file_size_ta'] = $this->formatFileSize($file->getSize());
+        }
+
+        unset($validated['file_en'], $validated['file_si'], $validated['file_ta']);
+
+        $procurement->update($validated);
+
+        $activityLogger->record(
+            $request,
+            'updated',
+            'procurement',
+            $procurement->id,
+            $procurement->title,
+            'Updated procurement details'
+        );
+
+        return redirect()->route('admin.procurements.index')->with('success', 'Procurement updated successfully.');
+    }
+
+    /**
+     * Extend procurement notice deadline quickly.
+     */
+    public function extendDeadline(Request $request, int $id, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $procurement = Procurement::findOrFail($id);
+
+        $request->validate([
+            'new_deadline_date' => ['required', 'date'],
+        ]);
+
+        $oldDeadline = $procurement->deadline_date?->format('Y-m-d');
+        $newDeadline = Carbon::parse($request->input('new_deadline_date'))->format('Y-m-d');
+
+        if ($procurement->original_deadline_date === null) {
+            $procurement->original_deadline_date = $procurement->deadline_date;
+        }
+
+        $procurement->deadline_date = $newDeadline;
+        $procurement->save();
+
+        $activityLogger->record(
+            $request,
+            'updated',
+            'procurement',
+            $procurement->id,
+            $procurement->title,
+            "Extended deadline from {$oldDeadline} to {$newDeadline}"
+        );
+
+        return redirect()->back()->with('success', "Deadline for '{$procurement->title}' extended to {$newDeadline} successfully.");
+    }
+
+    /**
+     * Delete procurement notice.
+     */
+    public function destroy(int $id, Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $procurement = Procurement::findOrFail($id);
+
+        $files = array_filter([
+            $procurement->file_path,
+            $procurement->file_path_si,
+            $procurement->file_path_ta,
+        ]);
+
+        foreach ($files as $filePath) {
+            if (Storage::disk('public')->exists($filePath)) {
+                Storage::disk('public')->delete($filePath);
+            }
+        }
+
+        $title = $procurement->title;
+        $procurement->delete();
+
+        $activityLogger->record(
+            $request,
+            'removed',
+            'procurement',
+            $id,
+            $title,
+            'Deleted procurement notice'
+        );
+
+        return redirect()->route('admin.procurements.index')->with('success', 'Procurement deleted successfully.');
+    }
+
+    private function formatFileSize(int $bytes): string
+    {
+        if ($bytes >= 1048576) {
+            return number_format($bytes / 1048576, 2).' MB';
+        }
+
+        return number_format($bytes / 1024, 0).' KB';
+    }
+}
+==== app/Http/Controllers/Admin/DownloadController.php ====
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Publication;
+use App\Services\CmsActivityLogger;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
+
+class DownloadController extends Controller
+{
+    /**
+     * List all downloadable forms and guidelines.
+     */
+    public function index(CmsActivityLogger $activityLogger): View
+    {
+        $downloads = Publication::whereIn('category', ['Application Form', 'Handbook', 'Guideline'])
+            ->orderBy('published_date', 'desc')
+            ->paginate(10);
+        $uploaders = $activityLogger->latestActorsFor('document', $downloads->pluck('id')->all());
+
+        return view('admin.downloads.index', compact('downloads', 'uploaders'));
+    }
+
+    /**
+     * Show create download form.
+     */
+    public function create(): View
+    {
+        return view('admin.downloads.create');
+    }
+
+    /**
+     * Store new download item.
+     */
+    public function store(Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:191'],
+            'category' => ['required', 'string', 'in:Application Form,Handbook,Guideline'],
+            'document_number' => ['nullable', 'string', 'max:100'],
+            'language' => ['required', 'string', 'max:50'],
+            'description' => ['nullable', 'string', 'max:1000'],
+            'file' => ['required', 'file', 'mimes:pdf,docx', 'extensions:pdf,docx', 'max:20480'],
+            'published_date' => ['required', 'date'],
+        ]);
+
+        $file = $request->file('file');
+        $path = $file->store('downloads', 'public');
+
+        unset($validated['file']);
+        $validated['file_path'] = $path;
+        $validated['file_size'] = $this->formatFileSize($file->getSize());
+        $validated['file_url'] = Storage::disk('public')->url($path);
+        $validated['is_active'] = $request->boolean('is_active');
+
+        $download = Publication::create($validated);
+        $activityLogger->record($request, 'created', 'document', $download->id, $download->title);
+        $activityLogger->record(
+            $request,
+            'uploaded',
+            'document',
+            $download->id,
+            $download->title,
+            'Uploaded file: '.$file->getClientOriginalName(),
+        );
+
+        return redirect()->route('admin.downloads.index')->with('success', 'Downloadable item created successfully.');
+    }
+
+    /**
+     * Show edit download form.
+     */
+    public function edit(int $id): View
+    {
+        $download = Publication::findOrFail($id);
+
+        return view('admin.downloads.edit', compact('download'));
+    }
+
+    /**
+     * Update download item.
+     */
+    public function update(Request $request, int $id, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $download = Publication::findOrFail($id);
+
+        $rules = [
+            'title' => ['required', 'string', 'max:191'],
+            'category' => ['required', 'string', 'in:Application Form,Handbook,Guideline'],
+            'document_number' => ['nullable', 'string', 'max:100'],
+            'language' => ['required', 'string', 'max:50'],
+            'description' => ['nullable', 'string', 'max:1000'],
+            'published_date' => ['required', 'date'],
+        ];
+
+        if (! $download->file_path && ! $download->getRawOriginal('file_url')) {
+            $rules['file'] = ['required', 'file', 'mimes:pdf,docx', 'extensions:pdf,docx', 'max:20480'];
+        } else {
+            $rules['file'] = ['nullable', 'file', 'mimes:pdf,docx', 'extensions:pdf,docx', 'max:20480'];
+        }
+
+        $validated = $request->validate($rules);
+
+        $uploadedFile = $request->file('file');
+
+        if ($uploadedFile !== null) {
+            $path = $uploadedFile->store('downloads', 'public');
+
+            if ($download->file_path && Storage::disk('public')->exists($download->file_path)) {
+                Storage::disk('public')->delete($download->file_path);
+            }
+
+            $validated['file_path'] = $path;
+            $validated['file_size'] = $this->formatFileSize($uploadedFile->getSize());
+            $validated['file_url'] = Storage::disk('public')->url($path);
+        }
+
+        unset($validated['file']);
+        $validated['is_active'] = $request->boolean('is_active');
+
+        $download->update($validated);
+        $activityLogger->record($request, 'updated', 'document', $download->id, $download->title);
+
+        if ($uploadedFile !== null) {
+            $activityLogger->record(
+                $request,
+                'uploaded',
+                'document',
+                $download->id,
+                $download->title,
+                'Replaced file with: '.$uploadedFile->getClientOriginalName(),
+            );
+        }
+
+        return redirect()->route('admin.downloads.index')->with('success', 'Download item updated successfully.');
+    }
+
+    /**
+     * Delete download item.
+     */
+    public function destroy(int $id, Request $request, CmsActivityLogger $activityLogger): RedirectResponse
+    {
+        $download = Publication::findOrFail($id);
+
+        $fileName = $download->file_path ? basename($download->file_path) : null;
+
+        if ($download->file_path && Storage::disk('public')->exists($download->file_path)) {
+            Storage::disk('public')->delete($download->file_path);
+        }
+
+        $download->delete();
+        $activityLogger->record(
+            $request,
+            'deleted',
+            'document',
+            $download->id,
+            $download->title,
+            $fileName ? 'Deleted file: '.$fileName : null,
+        );
+
+        return redirect()->route('admin.downloads.index')->with('success', 'Download item deleted successfully.');
+    }
+
+    /**
+     * Format a file size in bytes to a human-readable string.
+     */
+    private function formatFileSize(int $bytes): string
+    {
+        if ($bytes >= 1048576) {
+            return number_format($bytes / 1048576, 2).' MB';
+        }
+
+        if ($bytes >= 1024) {
+            return number_format($bytes / 1024, 1).' KB';
+        }
+
+        return $bytes.' B';
+    }
+}
