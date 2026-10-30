@@ -1,0 +1,8 @@
+#!/bin/bash
+# Run the default build process first
+/usr/libexec/s2i/assemble
+
+# Fix directory ownership and write privileges for OpenShift's running user
+echo "Fixing storage write permissions..."
+chmod -R g+w storage bootstrap/cache
+chgrp -R 0 storage bootstrap/cache
