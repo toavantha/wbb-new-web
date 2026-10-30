@@ -19,8 +19,17 @@ class EnforceHttpsAndSecurityHeaders
     {
         $isProduction = app()->isProduction();
 
-        if ($isProduction && ! $request->isSecure()) {
-            $secureBaseUrl = preg_replace('/^http:/i', 'https:', rtrim((string) config('app.url'), '/'));
+        // 🚀 Cloud-Safe Verification: Honors secure OpenShift proxy router parameters
+        $isReallySecure = $request->isSecure() || $request->header('X-Forwarded-Proto') === 'https';
+
+        if ($isProduction && !$isReallySecure) {
+            // Fall back gracefully to the actual request host if config('app.url') resolves poorly
+            $baseUrl = config('app.url');
+            if (empty($baseUrl) || str_contains($baseUrl, 'localhost')) {
+                $baseUrl = 'https://' . $request->getHttpHost();
+            }
+
+            $secureBaseUrl = preg_replace('/^http:/i', 'https:', rtrim((string) $baseUrl, '/'));
             $securePath = '/'.ltrim($request->getPathInfo(), '/');
             $queryString = $request->getQueryString();
 
@@ -28,10 +37,10 @@ class EnforceHttpsAndSecurityHeaders
                 $securePath .= '?'.$queryString;
             }
 
-            $response = redirect()->to($secureBaseUrl.$securePath, 301);
-        } else {
-            $response = $next($request);
+            return redirect()->to($secureBaseUrl.$securePath, 301);
         }
+
+        $response = $next($request);
 
         if (! app()->isLocal()) {
             $response->headers->set('Content-Security-Policy', self::CONTENT_SECURITY_POLICY);
@@ -40,7 +49,7 @@ class EnforceHttpsAndSecurityHeaders
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
-        if ($isProduction && $request->isSecure()) {
+        if ($isProduction && $isReallySecure) {
             $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
         }
 
