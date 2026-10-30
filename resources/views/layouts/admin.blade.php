@@ -56,6 +56,11 @@
                 <span>News & Press Releases</span>
             </a>
 
+            <a href="{{ route('admin.important-information.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition {{ request()->routeIs('admin.important-information.*') ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'hover:bg-slate-800 hover:text-white' }}">
+                <i data-lucide="megaphone" class="w-4 h-4"></i>
+                <span>Important Information</span>
+            </a>
+
             <a href="{{ route('admin.publications.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition {{ request()->routeIs('admin.publications.*') ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'hover:bg-slate-800 hover:text-white' }}">
                 <i data-lucide="file-text" class="w-4 h-4"></i>
                 <span>Publications & Circulars</span>

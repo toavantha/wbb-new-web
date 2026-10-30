@@ -142,6 +142,60 @@
         </div>
     </section>
 
+    @if($importantInformation->isNotEmpty())
+        <section id="important-information" aria-labelledby="important-information-heading"
+            class="relative bg-gradient-to-r from-wbb-950 via-wbb-900 to-wbb-950 shadow-lg overflow-hidden">
+            {{-- Decorative animated shimmer --}}
+            <div class="important-information__shimmer absolute inset-0 pointer-events-none" aria-hidden="true"></div>
+
+            <div class="relative flex items-stretch">
+                {{-- Left badge panel --}}
+                <div class="flex shrink-0 items-center gap-3 px-4 py-3.5 sm:px-6 sm:w-auto bg-amber-500">
+                    <span class="important-information__pulse-dot relative flex h-3 w-3 shrink-0">
+                        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-wbb-900/60"></span>
+                        <span class="relative inline-flex h-3 w-3 rounded-full bg-wbb-900"></span>
+                    </span>
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="megaphone" class="h-5 w-5 text-wbb-950" aria-hidden="true"></i>
+                        <h2 id="important-information-heading" class="text-sm font-extrabold uppercase tracking-wider text-wbb-950 whitespace-nowrap">
+                            {{ __('site.home.important_information') }}
+                        </h2>
+                    </div>
+                    <button type="button" data-important-information-toggle
+                        data-pause-label="{{ __('site.home.pause_ticker') }}"
+                        data-resume-label="{{ __('site.home.resume_ticker') }}"
+                        aria-label="{{ __('site.home.pause_ticker') }}" aria-pressed="false"
+                        class="shrink-0 rounded-md border border-wbb-900/30 bg-wbb-950/20 px-2 py-1 text-[10px] font-bold text-wbb-950 transition hover:bg-wbb-950/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+                        {{ __('site.home.pause_ticker') }}
+                    </button>
+                </div>
+
+                {{-- Scrolling ticker area --}}
+                <div class="important-information__viewport flex min-w-0 flex-1 items-center overflow-hidden">
+                    <ul class="important-information__static-list sr-only">
+                        @foreach($importantInformation as $notice)
+                            <li lang="{{ app()->getLocale() }}">{{ $notice->localizedMessage() }}</li>
+                        @endforeach
+                    </ul>
+
+                    <div class="important-information__track flex w-max" data-important-information-track aria-hidden="true">
+                        @foreach([false, true] as $isDuplicate)
+                            <div class="important-information__group flex shrink-0 items-center gap-10 px-8 py-4 text-sm font-bold text-white sm:text-base {{ $isDuplicate ? 'important-information__group--copy' : '' }}"
+                                lang="{{ app()->getLocale() }}">
+                                @foreach($importantInformation as $notice)
+                                    <span class="inline-flex shrink-0 items-center gap-3">
+                                        <span class="flex h-2 w-2 shrink-0 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.6)]"></span>
+                                        <span>{{ $notice->localizedMessage() }}</span>
+                                    </span>
+                                @endforeach
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+        </section>
+    @endif
+
     <!-- National Key Figures -->
     <section class="bg-white border-b border-slate-200 py-10">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

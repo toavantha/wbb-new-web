@@ -8,6 +8,27 @@ document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
     document.getElementById('admin-sidebar')?.classList.toggle('-translate-x-full');
 });
 
+document.querySelectorAll('[data-important-information-toggle]').forEach((button) => {
+    button.addEventListener('click', () => {
+        const section = button.closest('#important-information');
+
+        if (!(section instanceof HTMLElement)) {
+            return;
+        }
+
+        const isPaused = button.getAttribute('aria-pressed') !== 'true';
+        const label = isPaused ? button.dataset.resumeLabel : button.dataset.pauseLabel;
+
+        section.classList.toggle('is-paused', isPaused);
+        button.setAttribute('aria-pressed', String(isPaused));
+
+        if (label) {
+            button.textContent = label;
+            button.setAttribute('aria-label', label);
+        }
+    });
+});
+
 const passwordInput = document.getElementById('password');
 const passwordVisibilityButton = document.getElementById('toggle-password-visibility');
 

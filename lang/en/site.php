@@ -91,6 +91,10 @@ return [
         'contact' => 'Contact Us & Head Office Location | Welfare Benefits Board',
     ],
     'home' => [
+        'important_information' => 'Important Information',
+        'important_information_hint' => 'Official updates from the Welfare Benefits Board',
+        'pause_ticker' => 'Pause',
+        'resume_ticker' => 'Resume',
         'portal_badge' => 'Official Institutional Portal • Gazette No. 1952/22',
         'board_name' => 'Welfare Benefits Board',
         'ministry' => 'Ministry of Finance & Planning',

@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\DownloadController as AdminDownloadController;
 use App\Http\Controllers\Admin\EmailVerificationController;
 use App\Http\Controllers\Admin\EmployeeController as AdminEmployeeController;
 use App\Http\Controllers\Admin\GovernmentAffiliationController as AdminGovernmentAffiliationController;
+use App\Http\Controllers\Admin\ImportantNoticeController as AdminImportantNoticeController;
 use App\Http\Controllers\Admin\NewsController as AdminNewsController;
 use App\Http\Controllers\Admin\PasswordController as AdminPasswordController;
 use App\Http\Controllers\Admin\ProcurementController as AdminProcurementController;
@@ -98,6 +99,9 @@ Route::prefix('admin')->group(function () {
 
         // News & Press Releases Management
         Route::resource('news', AdminNewsController::class, ['as' => 'admin']);
+
+        // Important Information Ticker Management
+        Route::resource('important-information', AdminImportantNoticeController::class, ['as' => 'admin'])->except('show');
 
         // Publications & Circulars Management
         Route::resource('publications', AdminPublicationController::class, ['as' => 'admin']);

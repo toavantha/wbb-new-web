@@ -32,3 +32,91 @@
     background-image: radial-gradient(rgba(15, 44, 89, 0.08) 1px, transparent 0);
     background-size: 24px 24px;
 }
+
+.important-information__group {
+    width: max-content;
+    min-width: 100%;
+}
+
+.important-information__track {
+    animation: important-information-left-to-right 36s linear infinite;
+}
+
+.important-information__viewport:hover .important-information__track,
+.important-information__viewport:focus-within .important-information__track {
+    animation-play-state: paused;
+}
+
+#important-information.is-paused .important-information__track {
+    animation-play-state: paused;
+}
+
+@keyframes important-information-left-to-right {
+    from {
+        transform: translateX(0);
+    }
+
+    to {
+        transform: translateX(-50%);
+    }
+}
+
+/* Decorative shimmer that sweeps across the dark ticker background */
+.important-information__shimmer {
+    background: linear-gradient(
+        110deg,
+        transparent 20%,
+        rgba(245, 158, 11, 0.07) 40%,
+        rgba(245, 158, 11, 0.12) 50%,
+        rgba(245, 158, 11, 0.07) 60%,
+        transparent 80%
+    );
+    background-size: 200% 100%;
+    animation: important-information-shimmer 4s ease-in-out infinite;
+}
+
+@keyframes important-information-shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #important-information [data-important-information-toggle] {
+        display: none;
+    }
+
+    .important-information__track {
+        display: none;
+    }
+
+    .important-information__shimmer {
+        animation: none;
+    }
+
+    .important-information__static-list {
+        position: static;
+        display: flex;
+        width: auto;
+        height: auto;
+        flex-wrap: wrap;
+        gap: 0.75rem 1.25rem;
+        margin: 0;
+        padding: 1rem 1.5rem;
+        overflow: visible;
+        clip: auto;
+        clip-path: none;
+        white-space: normal;
+        list-style: none;
+    }
+
+    .important-information__static-list li {
+        color: #ffffff;
+        font-size: 0.875rem;
+        font-weight: 700;
+    }
+}

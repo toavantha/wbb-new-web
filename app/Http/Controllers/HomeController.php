@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ImportantNotice;
 use App\Models\NewsItem;
 use App\Models\Procurement;
 use App\Models\Publication;
@@ -16,6 +17,12 @@ class HomeController extends Controller
      */
     public function index(): View
     {
+        $importantInformation = ImportantNotice::query()
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+
         $featuredNews = NewsItem::where('is_published', true)
             ->orderBy('published_date', 'desc')
             ->take(3)
@@ -55,6 +62,13 @@ class HomeController extends Controller
             'state_banks' => '100%',
         ];
 
-        return view('frontend.home', compact('featuredNews', 'latestCirculars', 'latestProcurements', 'homeSchemes', 'stats'));
+        return view('frontend.home', compact(
+            'importantInformation',
+            'featuredNews',
+            'latestCirculars',
+            'latestProcurements',
+            'homeSchemes',
+            'stats',
+        ));
     }
 }
