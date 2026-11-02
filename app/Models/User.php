@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Notifications\WbbVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -51,5 +52,13 @@ class User extends Authenticatable implements MustVerifyEmail
             'is_approved' => 'boolean',
             'must_change_password' => 'boolean',
         ];
+    }
+
+    /**
+     * Send the custom WBB email verification notification.
+     */
+    public function sendEmailVerificationNotification(): void
+    {
+        $this->notify(new WbbVerifyEmail());
     }
 }
