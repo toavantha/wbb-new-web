@@ -1,8 +1,30 @@
+
 #!/bin/bash
-# Run the default build process first
+set -e
+
+echo "Running the default Laravel S2I assemble..."
 /usr/libexec/s2i/assemble
 
-# Fix directory ownership and write privileges for OpenShift's running user
+echo "Checking Node.js and npm in the build environment..."
+node --version
+npm --version
+
+echo "Installing frontend dependencies..."
+npm ci --include=dev
+
+echo "Building frontend assets..."
+npm run build
+
+echo "Verifying Vite manifest..."
+if [ ! -f public/build/manifest.json ]; then
+    echo "ERROR: Vite manifest was not generated!"
+    exit 1
+fi
+
+echo "Vite manifest generated successfully."
+
 echo "Fixing storage write permissions..."
 chmod -R g+w storage bootstrap/cache
 chgrp -R 0 storage bootstrap/cache
+
+echo "Laravel application build completed successfully."
