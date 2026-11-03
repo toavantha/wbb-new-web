@@ -8,8 +8,11 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnforceHttpsAndSecurityHeaders
 {
-     private const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' https://unpkg.com https://cdn.conferbot.com https://challenges.cloudflare.com https://maps.googleapis.com; script-src-attr 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com https://maps.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://wbb.gov.lk https://www.wbb.gov.lk https://maps.googleapis.com https://*.google.com https://*.gstatic.com https://challenges.cloudflare.com https://*.conferbot.com; connect-src 'self' https://challenges.cloudflare.com https://maps.googleapis.com https://*.googleapis.com https://*.gstatic.com https://*.conferbot.com wss://*.conferbot.com; frame-src 'self' https://challenges.cloudflare.com https://*.google.com https://*.openstreetmap.org https://*.conferbot.com; worker-src 'self' blob:; upgrade-insecure-requests";
-
+    private const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' https://unpkg.com https://cdn.conferbot.com https://challenges.cloudflare.com https://maps.googleapis.com; script-src-attr 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com https://maps.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com https://maps.googleapis.com; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://wbb.gov.lk https://www.wbb.gov.lk https://maps.googleapis.com https://*.google.com https://*.gstatic.com https://challenges.cloudflare.com https://*.conferbot.com; connect-src 'self' https://challenges.cloudflare.com https://maps.googleapis.com https://*.googleapis.com https://*.gstatic.com https://*.conferbot.com wss://*.conferbot.com; frame-src 'self' https://challenges.cloudflare.com https://*.google.com https://*.openstreetmap.org https://*.conferbot.com; worker-src 'self' blob:; upgrade-insecure-requests";
+    private const CSP_STYLE_REPORT_ONLY =
+    "style-src 'self' https://fonts.googleapis.com https://maps.googleapis.com; " .
+    "style-src-elem 'self' https://fonts.googleapis.com https://maps.googleapis.com; " .
+    "style-src-attr 'none'";
     /**
      * Handle an incoming request.
      *
@@ -19,7 +22,7 @@ class EnforceHttpsAndSecurityHeaders
     {
         $isProduction = app()->isProduction();
 
-        // 🚀 Cloud-Safe Verification: Honors secure OpenShift proxy router parameters
+        // Ã°Å¸Å¡â‚¬ Cloud-Safe Verification: Honors secure OpenShift proxy router parameters
         $isReallySecure = $request->isSecure() || $request->header('X-Forwarded-Proto') === 'https';
 
         if ($isProduction && !$isReallySecure) {
@@ -43,8 +46,18 @@ class EnforceHttpsAndSecurityHeaders
         $response = $next($request);
 
         if (! app()->isLocal()) {
-            $response->headers->set('Content-Security-Policy', self::CONTENT_SECURITY_POLICY);
+            $response->headers->set(
+                'Content-Security-Policy',
+                self::CONTENT_SECURITY_POLICY
+            );
+
+            // Temporary diagnostic policy; does not block styles.
+            $response->headers->set(
+                'Content-Security-Policy-Report-Only',
+                self::CSP_STYLE_REPORT_ONLY
+            );
         }
+
         $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
