@@ -1,3 +1,7 @@
+@import '@fontsource-variable/plus-jakarta-sans/index.css';
+@import '@fontsource-variable/noto-sans-sinhala/index.css';
+@import '@fontsource-variable/noto-sans-tamil/index.css';
+
 @import 'tailwindcss';
 
 @source '../views/**/*.blade.php';
@@ -5,7 +9,7 @@
 @source '../../storage/framework/views/*.php';
 
 @theme {
-    --font-sans: 'Plus Jakarta Sans', 'Noto Sans Sinhala', 'Noto Sans Tamil', sans-serif;
+    --font-sans: 'Plus Jakarta Sans Variable', 'Noto Sans Sinhala Variable', 'Noto Sans Tamil Variable', sans-serif;
     --color-wbb-950: #06152d;
     --color-wbb-900: #0a1931;
     --color-wbb-800: #0f2c59;
